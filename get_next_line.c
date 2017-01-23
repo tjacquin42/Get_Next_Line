@@ -6,88 +6,129 @@
 /*   By: tjacquin <tjacquin@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2016/06/28 22:01:29 by tjacquin          #+#    #+#             */
-/*   Updated: 2016/12/05 18:50:18 by tjacquin         ###   ########.fr       */
+/*   Updated: 2017/01/23 18:49:02 by tjacquin         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "get_next_line.h"
 
-int		len(char *some)
+static t_f		*check_fd(int fd, t_f **struc)
 {
-	int i;
+	char	*buf;
+	t_f		*new;
 
-	i = 0;
-	while (some[i] != '\0')
-		i++;
-	return (i);
-}
-
-int		lenline(char **leni, int fetich)
-{
-	int y;
-
-	y = 0;
-	while (leni[fetich][y] != '\n')
-		y++;
-	return (y);
-}
-
-char	*next(char **str, int fetich)
-{
-	char		*one;
-	int			i;
-
-	i = 0;
-	one = (char *)malloc(sizeof(char) * lenline(str, fetich));
-	while (str[fetich][i] != '\n')
-	{
-		one[i] = str[fetich][i];
-		i++;
-	}
-	free(str);
-	one[i] = '\0';
-	ft_putstr(one);
-	return (one);
-}
-
-char	**get_line(const int fd, char *buff, int fetich, char **all)
-{
-	int		num;
-	int		i;
-	int		x;
-	int		y;
-
-	x = 0;
-	num = read(fd, buff, BUFF_SIZE);
-	buff[num] = '\0';
-	all = (char **)malloc(sizeof(char *) * ft_strlen(buff));
-	while (x < len(buff))
-		all[x++] = (char *)malloc(sizeof(char) * ft_strlen(buff));
-	x = 0;
-	i = -1;
-	while (buff[++i] != '\0')
-	{
-		y = 0;
-		while (buff[i] != '\n')
-			all[x][y++] = buff[i++];
-		all[x++][y] = '\n';
-	}
-	all[x][y] = '\0';
-	if (fetich >= x)
+	buf = NULL;
+	if (fd < 0 || read(fd, buf, 0) == -1)
 		return (NULL);
-	return (all);
+	if (!*struc)
+	{
+		if (!(new = (t_f*)malloc(sizeof(t_f))))
+			return (NULL);
+		new->fd = fd;
+		new->data = NULL;
+		new->eof = 0;
+		new->next = NULL;
+		*struc = new;
+		return (new);
+	}
+	new = *struc;
+	if (!new)
+		return (NULL);
+	if (new->fd == fd)
+		return (new);
+	return (check_fd(fd, &new->next));
 }
 
-int		get_next_line(const int fd, char **line)
+static int		endline(t_f *struc, char **line, int ret)
 {
-	char		buff[BUFF_SIZE];
-	char		*one;
-	static int	fetich = 0;
+	char *cp;
+	char *tmp;
 
-	line = get_line(fd, buff, fetich, line);
-	if (line == NULL)
+	if ((cp = ft_strchr(struc->data, 0x0a)))
+	{
+		*cp = 0;
+		if (!(tmp = ft_strdup(cp + 1)) ||
+				!(*line = ft_strdup(struc->data)))
+			return (ERROR);
+		free(struc->data);
+		if (!(struc->data = ft_strdup(tmp)))
+			return (ERROR);
+		free(tmp);
+		return (END_OF_LINE);
+	}
+	else if (ret == 0 && (int)ft_strlen(struc->data) == 0)
+		struc->eof = 1;
+	else if (ret == 0 && (int)ft_strlen(struc->data) > 0)
+	{
+		if (!(*line = ft_strdup(struc->data)))
+			return (ERROR);
+		(struc->eof = 1) ? free(struc->data) : NULL;
+		return (END_OF_LINE);
+	}
+	return (0);
+}
+
+static int		freejoin(char **dst, char *src)
+{
+	char	*tmp;
+
+	if (!dst || !src || !*dst)
 		return (0);
-	one = next(line, fetich);
-	fetich++;
+	if (!(tmp = ft_strjoin(*dst, src)))
+		return (0);
+	free(*dst);
+	if (!(*dst = ft_strdup(tmp)))
+		return (0);
+	free(tmp);
 	return (1);
+}
+
+static int		read_line(t_f *struc, char **line, char *buf)
+{
+	int		ret;
+	int		is_endline;
+
+	if (!struc)
+		return (ERROR);
+	while ((ret = read(struc->fd, buf, BUFF_SIZE)) || struc->eof == 0)
+	{
+		buf[ret] = 0;
+		if (!struc->data)
+		{
+			if (!(struc->data = ft_strdup(buf)))
+				return (ERROR);
+		}
+		else if (ret > 0)
+		{
+			if (!freejoin(&struc->data, buf))
+				return (ERROR);
+		}
+		if ((is_endline = endline(struc, line, ret)) == END_OF_LINE)
+			return (END_OF_LINE);
+		else if (is_endline == ERROR)
+			return (ERROR);
+	}
+	*line = NULL;
+	return (END_OF_FILE);
+}
+
+int				get_next_line(const int fd, char **line)
+{
+	static t_f		*struc;
+	t_f				*tmp;
+	int				ret;
+	char			*buf;
+
+	if (!(buf = (char*)malloc(sizeof(char) * BUFF_SIZE + 1)))
+		return (ERROR);
+	if (!(tmp = check_fd(fd, &struc)))
+		return (ERROR);
+	ret = read_line(tmp, line, buf);
+	free(buf);
+	if (ret == END_OF_LINE)
+		return (END_OF_LINE);
+	else if (ret == ERROR)
+		return (ERROR);
+	else
+		return (END_OF_FILE);
 }
